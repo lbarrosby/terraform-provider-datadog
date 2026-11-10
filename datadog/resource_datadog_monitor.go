@@ -1090,7 +1090,7 @@ func getMonitorFormulaQuerySchema() *schema.Schema {
 							"data_source": {
 								Type:             schema.TypeString,
 								Required:         true,
-								ValidateDiagFunc: validators.ValidateEnumValue(datadogV1.NewMonitorFormulaAndFunctionCostDataSourceFromValue),
+								ValidateDiagFunc: validators.ValidateEnumValue(datadogV1.NewMonitorFormulaAndFunctionCostDataSourceFromValue, datadogV1.NewMonitorFormulaAndFunctionMetricQueryDataSourceFromValue),
 								Description:      "The data source for cloud cost queries.",
 							},
 							"query": {
@@ -1949,6 +1949,13 @@ func buildMonitorFormulaAndFunctionEventQuery(data map[string]interface{}) *data
 }
 
 func buildMonitorFormulaAndFunctionCloudCostQuery(data map[string]interface{}) *datadogV1.MonitorFormulaAndFunctionQueryDefinition {
+	if data["data_source"] == "metrics" {
+		query := datadogV1.NewMonitorFormulaAndFunctionMetricQueryDefinition(datadogV1.MonitorFormulaAndFunctionMetricQueryDataSource("metrics"), data["name"].(string), data["query"].(string))
+		if v, ok := data["aggregator"].(string); ok && v != "" {
+			query.SetAggregator(datadogV1.MonitorFormulaAndFunctionCostAggregator(v))
+		}
+		return &datadogV1.MonitorFormulaAndFunctionQueryDefinition{MonitorFormulaAndFunctionMetricQueryDefinition: query}
+	}
 	dataSource := datadogV1.MonitorFormulaAndFunctionCostDataSource(data["data_source"].(string))
 
 	cloudCostQuery := datadogV1.NewMonitorFormulaAndFunctionCostQueryDefinition(dataSource, data["name"].(string), data["query"].(string))
@@ -2869,6 +2876,15 @@ func buildTerraformCostMonitorVariables(datadogVariables []datadogV1.MonitorForm
 	queries := make([]map[string]interface{}, len(datadogVariables))
 	for i, query := range datadogVariables {
 		terraformQuery := map[string]interface{}{}
+		if metric := query.MonitorFormulaAndFunctionMetricQueryDefinition; metric != nil {
+			terraformQuery["data_source"] = string(metric.DataSource)
+			terraformQuery["name"] = metric.Name
+			terraformQuery["query"] = metric.Query
+			if aggregator, ok := metric.GetAggregatorOk(); ok {
+				terraformQuery["aggregator"] = aggregator
+			}
+			queries[i] = terraformQuery
+		}
 		terraformCostQueryDefinition := query.MonitorFormulaAndFunctionCostQueryDefinition
 		if terraformCostQueryDefinition != nil {
 			if dataSource, ok := terraformCostQueryDefinition.GetDataSourceOk(); ok {

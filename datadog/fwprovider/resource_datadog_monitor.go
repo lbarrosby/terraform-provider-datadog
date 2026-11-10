@@ -2036,6 +2036,15 @@ func (r *monitorResource) buildCloudCostQueryStruct(cloudCostQs []CloudCostQuery
 	variablesReq := []datadogV1.MonitorFormulaAndFunctionQueryDefinition{}
 	for _, cloudCostQ := range cloudCostQs {
 		variableReq := datadogV1.MonitorFormulaAndFunctionQueryDefinition{}
+		if cloudCostQ.DataSource.ValueString() == "metrics" {
+			metric := datadogV1.NewMonitorFormulaAndFunctionMetricQueryDefinition(datadogV1.MonitorFormulaAndFunctionMetricQueryDataSource("metrics"), cloudCostQ.Name.ValueString(), cloudCostQ.Query.ValueString())
+			if !cloudCostQ.Aggregator.IsNull() && !cloudCostQ.Aggregator.IsUnknown() {
+				metric.SetAggregator(datadogV1.MonitorFormulaAndFunctionCostAggregator(cloudCostQ.Aggregator.ValueString()))
+			}
+			variableReq.MonitorFormulaAndFunctionMetricQueryDefinition = metric
+			variablesReq = append(variablesReq, variableReq)
+			continue
+		}
 		cloudCostQueryReq := datadogV1.MonitorFormulaAndFunctionCostQueryDefinition{}
 		fwutils.SetOptString(cloudCostQ.Query, cloudCostQueryReq.SetQuery)
 		fwutils.SetOptString(cloudCostQ.Name, cloudCostQueryReq.SetName)
@@ -2526,6 +2535,18 @@ func (r *monitorResource) updateVariablesState(ctx context.Context, state *monit
 		if eventQState := r.buildEventQueryState(ctx, v.MonitorFormulaAndFunctionEventQueryDefinition); eventQState != nil {
 			eventQueryStates = append(eventQueryStates, *eventQState)
 		}
+		if metric := v.MonitorFormulaAndFunctionMetricQueryDefinition; metric != nil {
+			query := CloudCostQuery{
+				DataSource: types.StringValue(string(metric.DataSource)),
+				Name:       types.StringValue(metric.Name),
+				Query:      types.StringValue(metric.Query),
+				Aggregator: types.StringNull(),
+			}
+			if metric.Aggregator != nil {
+				query.Aggregator = types.StringValue(string(*metric.Aggregator))
+			}
+			CloudCostQueryStates = append(CloudCostQueryStates, query)
+		}
 		if costQState := r.buildCloudCostQueryState(v.MonitorFormulaAndFunctionCostQueryDefinition); costQState != nil {
 			CloudCostQueryStates = append(CloudCostQueryStates, *costQState)
 		}
@@ -3010,7 +3031,7 @@ func (r *monitorResource) getAllowEventQueryOrder() []string {
 }
 
 func (r *monitorResource) getAllowCloudCostDataSource() []string {
-	return enumStrings((*datadogV1.MonitorFormulaAndFunctionCostDataSource)(nil).GetAllowedValues())
+	return append(enumStrings((*datadogV1.MonitorFormulaAndFunctionCostDataSource)(nil).GetAllowedValues()), enumStrings((*datadogV1.MonitorFormulaAndFunctionMetricQueryDataSource)(nil).GetAllowedValues())...)
 }
 
 func (r *monitorResource) getAllowCloudCostAggregator() []string {
